@@ -20,7 +20,7 @@ def rand_projections(embedding_dim, num_samples=50):
     return torch.from_numpy(theta).type(torch.FloatTensor)
 
 
-def _sliced_wasserstein_distance(encoded_samples, distribution_samples, num_projections=50, p=2):
+def _sliced_wasserstein_distance(encoded_samples, distribution_samples, num_projections=50, p=2, device=None):
     """Sliced Wasserstein Distance between encoded samples and drawn distribution samples.
 
         Args:
@@ -28,14 +28,16 @@ def _sliced_wasserstein_distance(encoded_samples, distribution_samples, num_proj
             distribution_samples (torch.Tensor): distribution training tensor samples
             num_projections (int): number of projectsion to approximate sliced wasserstein distance
             p (int): power of distance metric
+            device (torch.device): PyTorch Device
 
         Return:
             torch.Tensor
     """
+    device = device if device else torch.device('cpu')
     # derive latent space dimension size from random samples drawn from a distribution in it
     embedding_dim = distribution_samples.size(1)
     # generate random projections in latent space
-    projections = rand_projections(embedding_dim, num_projections)
+    projections = rand_projections(embedding_dim, num_projections).to(device)
     # calculate projection of the encoded samples
     encoded_projections = encoded_samples.matmul(projections.transpose(0, 1))
     # calculate projection of the random distribution samples
@@ -51,7 +53,7 @@ def _sliced_wasserstein_distance(encoded_samples, distribution_samples, num_proj
     return wasserstein_distance_p.mean()
 
 
-def sliced_wasserstein_distance(encoded_samples, distribution_fn=rand_cirlce2d, num_projections=50, p=2):
+def sliced_wasserstein_distance(encoded_samples, distribution_fn=rand_cirlce2d, num_projections=50, p=2, device=None):
     """Sliced Wasserstein Distance between encoded samples and drawn distribution samples.
 
         Args:
@@ -59,14 +61,16 @@ def sliced_wasserstein_distance(encoded_samples, distribution_fn=rand_cirlce2d, 
             distribution_fn (callable): callable to draw random samples
             num_projections (int): number of projectsion to approximate sliced wasserstein distance
             p (int): power of distance metric
+            device (torch.device): PyTorch Device
 
         Return:
             torch.Tensor
     """
+    device = device if device else torch.device('cpu')
     # derive batch size from encoded samples
     batch_size = encoded_samples.size(0)
     # draw samples from latent space prior distribution
-    z = distribution_fn(batch_size)
+    z = distribution_fn(batch_size).to(device)
     # approximate wasserstein_distance between encoded and prior distributions
     # for average over each projection
     swd = _sliced_wasserstein_distance(encoded_samples, z, num_projections, p)
@@ -122,6 +126,6 @@ class SWAEBatchTrainer:
         recon_x, z = self.model_(x)
         bce = F.binary_cross_entropy(recon_x, x)
         l1 = F.l1_loss(recon_x, x)
-        w2 = float(self.weight_swd) * sliced_wasserstein_distance(z, self._distribution_fn, self.num_projections_, self.p_)
+        w2 = float(self.weight_swd) * sliced_wasserstein_distance(z, self._distribution_fn, self.num_projections_, self.p_, self._device)
         loss = bce + l1 + w2
         return {'loss': loss, 'bce': bce, 'l1': l1, 'w2': w2, 'encode': z, 'decode': recon_x}
